@@ -730,18 +730,23 @@ public class StratumUISystem : ModSystem
 
     private static StratumRosterEntry ToClientFallbackEntry(IPlayer player)
     {
-        string roleCode = player.Role?.Code ?? "player";
-        string roleName = player.Role?.Name ?? roleCode;
+        // Vanilla / non-Stratum: we have no reliable role or ping for anyone (including the local
+        // player, whose cached role may be stale from another server). Show everyone as "player" and
+        // mark ping as unknown (-1) so the dialog hides the pill instead of rendering "0 ms".
+        string gameMode;
+        try { gameMode = player.WorldData?.CurrentGameMode.ToString() ?? "Unknown"; }
+        catch { gameMode = "Unknown"; }
+
         return new StratumRosterEntry
         {
             PlayerUid = player.PlayerUID,
             PlayerName = player.PlayerName ?? "(unknown)",
-            RoleCode = roleCode,
-            RoleName = roleName,
-            RoleColor = ToHexColor(player.Role?.Color),
-            GameMode = player.WorldData?.CurrentGameMode.ToString() ?? "Unknown",
-            PingMs = 0,
-            IsStaff = StaffRoles.Contains(roleCode),
+            RoleCode = "player",
+            RoleName = "player",
+            RoleColor = null,
+            GameMode = gameMode,
+            PingMs = -1,
+            IsStaff = false,
             ActionFlags = 0,
             HasModerationCounts = false,
             ActiveWarnings = 0,

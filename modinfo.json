@@ -2,7 +2,7 @@
   "Type": "Code",
   "Name": "Stratum UI",
   "ModID": "stratumui",
-  "Version": "1.0.7",
+  "Version": "1.0.8",
   "NetworkVersion": "1.22.6",
   "Description": "Stratum UI is a mod made for Stratum powered servers, but will work fully with vanilla servers and singleplayer. It adds a online player list, as well as command autocompletion and a few other quality of life features.",
   "Authors": [ "Tsu (imtsubaki)" ],

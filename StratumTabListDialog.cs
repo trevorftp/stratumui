@@ -312,13 +312,18 @@ public class StratumTabListDialog : GuiDialog
         string mode = string.IsNullOrWhiteSpace(player.GameMode) ? "Unknown" : player.GameMode;
         DrawText(context, detailFont, mode, textX + roleFont.GetTextExtents(role).XAdvance + 38 * scale, y + 42 * scale);
 
-        string ping = FormatPing(player.PingMs);
-        double pingWidth = Math.Max(72 * scale, pingFont.GetTextExtents(ping).XAdvance + 24 * scale);
-        double pingX = x + width - padding - pingWidth;
-        double[] pingColor = PingColor(player.PingMs);
-        DrawPill(context, pingX, y + 22 * scale, pingWidth, 24 * scale, pingColor, 0.14, scale);
-        pingFont.Color = pingColor;
-        DrawText(context, pingFont, ping, pingX + 12 * scale, y + 26 * scale);
+        // PingMs < 0 means the server didn't report one (e.g. vanilla fallback). Hide the pill entirely
+        // rather than showing a misleading "0 ms" or "? ms".
+        if (player.PingMs >= 0)
+        {
+            string ping = FormatPing(player.PingMs);
+            double pingWidth = Math.Max(72 * scale, pingFont.GetTextExtents(ping).XAdvance + 24 * scale);
+            double pingX = x + width - padding - pingWidth;
+            double[] pingColor = PingColor(player.PingMs);
+            DrawPill(context, pingX, y + 22 * scale, pingWidth, 24 * scale, pingColor, 0.14, scale);
+            pingFont.Color = pingColor;
+            DrawText(context, pingFont, ping, pingX + 12 * scale, y + 26 * scale);
+        }
     }
 
     private static string FormatPing(int pingMs)

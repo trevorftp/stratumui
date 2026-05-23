@@ -12,11 +12,11 @@ using Vintagestory.API.Config;
 [assembly: AssemblyCulture("")]
 [assembly: ComVisible(false)]
 [assembly: Guid("f9e5a7c7-4f6e-44d9-b695-15d12b8e1a88")]
-[assembly: AssemblyVersion("1.0.7.0")]
-[assembly: AssemblyFileVersion("1.0.7.0")]
+[assembly: AssemblyVersion("1.0.8.0")]
+[assembly: AssemblyFileVersion("1.0.8.0")]
 
 [assembly: ModInfo("Stratum UI", "stratumui",
-    Version = "1.0.7",
+    Version = "1.0.8",
     NetworkVersion = GameVersion.NetworkVersion,
     Side = "Universal",
     RequiredOnClient = false,
