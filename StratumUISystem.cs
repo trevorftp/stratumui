@@ -32,11 +32,13 @@ public class StratumUISystem : ModSystem
     private IServerNetworkChannel serverChannel;
     private IClientNetworkChannel clientChannel;
     private long serverTickListenerId;
+    private long clientFallbackTickListenerId;
     private StratumTabListDialog tabListDialog;
     private StratumChatHistoryDialog chatHistoryDialog;
     private StratumPlayerDetailDialog playerDetailDialog;
     private StratumPlayerModerationDialog playerModerationDialog;
     private StratumCommandAutocomplete commandAutocomplete;
+    private StratumClientConfig clientConfig;
 
     public override bool ShouldLoad(EnumAppSide side)
     {
@@ -68,6 +70,7 @@ public class StratumUISystem : ModSystem
     public override void StartClientSide(ICoreClientAPI api)
     {
         capi = api;
+        clientConfig = StratumClientConfig.LoadOrCreate(api);
         // On vanilla servers nothing answers this channel; Connected stays false and we degrade gracefully.
         clientChannel = api.Network.RegisterChannel(ChannelName)
             .RegisterMessageType(typeof(StratumRosterPacket))
@@ -109,6 +112,11 @@ public class StratumUISystem : ModSystem
 
         api.Event.ChatMessage += OnClientChatMessage;
         api.Event.LeaveWorld += OnClientLeaveWorld;
+
+        // Vanilla / non-Stratum server fallback: the server won't send a roster packet, so we synthesise
+        // one from the client's own known-player list. Harmless when the channel IS connected because
+        // the server packet arrives more often and just overwrites this.
+        clientFallbackTickListenerId = api.Event.RegisterGameTickListener(_ => TryPushClientFallbackRoster(), 1500, 500);
     }
 
     public override void Dispose()
@@ -128,6 +136,10 @@ public class StratumUISystem : ModSystem
         {
             capi.Event.ChatMessage -= OnClientChatMessage;
             capi.Event.LeaveWorld -= OnClientLeaveWorld;
+            if (clientFallbackTickListenerId != 0)
+            {
+                capi.Event.UnregisterGameTickListener(clientFallbackTickListenerId);
+            }
         }
 
         tabListDialog?.Dispose();
@@ -681,8 +693,71 @@ public class StratumUISystem : ModSystem
         commandAutocomplete?.UpdateRoster(packet);
     }
 
+    // Build a minimal roster from the client's own player list. Used on vanilla servers where the
+    // StratumUI channel never handshakes, so we have no server-driven roster to show. Most rich data
+    // (ping, moderation counts, action flags) is unavailable client-side - those just stay empty.
+    private void TryPushClientFallbackRoster()
+    {
+        if (capi?.World == null)
+        {
+            return;
+        }
+
+        // Channel up = real roster is flowing. Don't fight it.
+        if (clientChannel?.Connected == true)
+        {
+            return;
+        }
+
+        IPlayer[] players = capi.World.AllOnlinePlayers ?? Array.Empty<IPlayer>();
+        StratumRosterEntry[] entries = players
+            .Where(p => p != null && !string.IsNullOrEmpty(p.PlayerUID))
+            .OrderBy(p => p.PlayerName, StringComparer.OrdinalIgnoreCase)
+            .Select(ToClientFallbackEntry)
+            .ToArray();
+
+        StratumRosterPacket packet = new StratumRosterPacket
+        {
+            Players = entries,
+            OnlineCount = entries.Length,
+            MaxPlayers = 0,
+            ServerTimeMilliseconds = capi.World.ElapsedMilliseconds
+        };
+
+        tabListDialog?.UpdateRoster(packet);
+        commandAutocomplete?.UpdateRoster(packet);
+    }
+
+    private static StratumRosterEntry ToClientFallbackEntry(IPlayer player)
+    {
+        string roleCode = player.Role?.Code ?? "player";
+        string roleName = player.Role?.Name ?? roleCode;
+        return new StratumRosterEntry
+        {
+            PlayerUid = player.PlayerUID,
+            PlayerName = player.PlayerName ?? "(unknown)",
+            RoleCode = roleCode,
+            RoleName = roleName,
+            RoleColor = ToHexColor(player.Role?.Color),
+            GameMode = player.WorldData?.CurrentGameMode.ToString() ?? "Unknown",
+            PingMs = 0,
+            IsStaff = StaffRoles.Contains(roleCode),
+            ActionFlags = 0,
+            HasModerationCounts = false,
+            ActiveWarnings = 0,
+            ActiveViolations = 0
+        };
+    }
+
     private void OnPlayerActionResultPacket(StratumPlayerActionResultPacket packet)
     {
+        // only write chat messages here for debugging
+        // can be enabled via stratumui-client.json (ShowActionResultsInChat). off by default
+        if (clientConfig?.ShowActionResultsInChat != true)
+        {
+            return;
+        }
+
         if (!string.IsNullOrWhiteSpace(packet?.Message))
         {
             capi.ShowChatMessage((packet.Success ? "[StratumUI] " : "[StratumUI] ") + packet.Message);
