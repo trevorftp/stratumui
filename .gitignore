@@ -1,0 +1,8 @@
+bin/
+obj/
+*.user
+*.suo
+*.lscache
+.vs/
+.idea/
+*.DotSettings.user
