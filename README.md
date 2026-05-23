@@ -56,6 +56,8 @@ a folder named `StratumUI` inside your `Mods` directory.
 <img width="855" height="591" alt="Screenshot 2026-05-23 132751" src="https://github.com/user-attachments/assets/ee8fb7d5-53c8-4b71-9b82-e6f2c6ba8586" />
 <img width="339" height="274" alt="Screenshot 2026-05-23 132809" src="https://github.com/user-attachments/assets/b4fe27bf-927a-4834-8fe8-774d980961bf" />
 <img width="336" height="265" alt="Screenshot 2026-05-23 132818" src="https://github.com/user-attachments/assets/e6d1e2a2-5339-45d4-b16b-a3b2ecb581e3" />
+<img width="690" height="477" alt="image" src="https://github.com/user-attachments/assets/22947b9f-a4c5-47d9-a384-45be6d032fc8" />
+
 
 
 ## License
