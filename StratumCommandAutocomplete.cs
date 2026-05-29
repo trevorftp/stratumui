@@ -180,7 +180,8 @@ internal sealed class StratumCommandAutocomplete : IDisposable
     private bool TryHandleChatKey(KeyEvent args)
     {
         int keyCode = args.KeyCode;
-        if (keyCode != (int)GlKeys.Tab && keyCode != (int)GlKeys.Up && keyCode != (int)GlKeys.Down)
+        int triggerKey = capi.Input.GetHotKeyByCode(StratumUISystem.TabListHotKey)?.CurrentMapping?.KeyCode ?? (int)GlKeys.Tab;
+        if (keyCode != triggerKey && keyCode != (int)GlKeys.Up && keyCode != (int)GlKeys.Down)
         {
             return false;
         }
@@ -201,7 +202,7 @@ internal sealed class StratumCommandAutocomplete : IDisposable
 
         EnsureCurrentSuggestions(chatInput);
 
-        if (keyCode == (int)GlKeys.Tab)
+        if (keyCode == triggerKey)
         {
             if (currentContext != null && currentMatches.Length > 0)
             {

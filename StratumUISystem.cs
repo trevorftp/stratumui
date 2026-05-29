@@ -16,7 +16,7 @@ namespace Vintagestory.Stratum.UI;
 public class StratumUISystem : ModSystem
 {
     private const string ChannelName = "stratumui";
-    private const string TabListHotKey = "stratumui-tablist";
+    internal const string TabListHotKey = "stratumui-tablist";
     private const string ChatHistoryHotKey = "stratumui-chat-history";
     private const string PlayerRecordsKey = "stratum.moderation.records.v1";
     // Roles that get the staff action menu. Other roles see a read-only roster.
