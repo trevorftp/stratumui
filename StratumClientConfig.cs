@@ -4,13 +4,12 @@ using Vintagestory.API.Client;
 
 namespace Vintagestory.Stratum.UI;
 
-// Lives in VintagestoryData/ModConfig/stratumui-client.json. Created on first launch with defaults.
+// VintagestoryData/ModConfig/stratumui-client.json. Created with defaults on first launch.
 public class StratumClientConfig
 {
     private const string FileName = "stratumui-client.json";
 
-    // Echo player-action results (kick/mute/warn/etc.) to the local chat log. Off by default since
-    // the server already prints its own confirmation when the underlying command runs.
+    // Echo /kick /mute /warn results to local chat. Off by default; the server already prints its own.
     public bool ShowActionResultsInChat { get; set; } = false;
 
     public static StratumClientConfig LoadOrCreate(ICoreClientAPI api)
@@ -22,7 +21,7 @@ public class StratumClientConfig
         }
         catch
         {
-            // Corrupt file - fall through and rewrite with defaults.
+            // Corrupt file; rewrite with defaults.
             cfg = null;
         }
 

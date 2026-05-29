@@ -157,7 +157,7 @@ public class StratumPlayerActionDialog : GuiDialog
     {
         if (channel?.Connected != true)
         {
-            // Server isn't running StratumUI - swallow the click instead of throwing.
+            // No StratumUI on the server so swallow the click.
             TryClose();
             return true;
         }

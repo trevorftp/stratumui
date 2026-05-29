@@ -15,32 +15,7 @@ internal sealed class StratumCommandAutocomplete : IDisposable
     private const int MaxVisibleMatches = 8;
     private const double MinPopupWidth = 230;
     private const double MaxPopupWidth = 560;
-
-    private static readonly string[] ServerCommands =
-    {
-        "activate", "allowlan", "announce", "announcenear", "autosavenow", "back", "ban", "bir", "chunk",
-        "clearchat", "chatclear", "db", "debug", "delhome", "delwarn", "discord", "eir", "entity", "e",
-        "executeas", "fixmapping", "freeze", "gamemode", "gm", "giveblock", "giveitem", "group", "groupinvite",
-        "hardban", "hardstop", "help", "home", "homes", "iir", "info", "ipblock", "jail", "jailstatus",
-        "kick", "land", "list", "lockchat", "macro", "moddb", "motd", "msg", "tell", "w", "mute",
-        "mutestatus", "mystats", "near", "note", "notes", "op", "player", "report", "reports", "reply", "r",
-        "role", "rules", "seen", "self", "serverconfig", "sc", "setambient", "setblock", "sethome", "setjail",
-        "setspawn", "slowmode", "spawn", "staffbroadcast", "sbc", "staffchat", "stats", "stop", "stratum",
-        "time", "tp", "tpa", "tpaccept", "tpacancel", "tpahere", "tpdeny", "tpdecline", "tps", "unban",
-        "unjail", "unmute", "uptime", "upnp", "vanish", "warn", "warnings", "website", "whitelist",
-        "worldconfig", "wc", "worldconfigcreate", "wcc"
-    };
-
-    private static readonly string[] StratumSubcommands =
-    {
-        "status", "health", "reload", "preflight", "packets", "violations", "players", "access", "chat", "pregen",
-        "player", "chunks", "entities", "queues", "performance", "perf", "timings"
-    };
-
-    private static readonly string[] EntitySubcommands =
-    {
-        "cmd", "debug", "list", "spawndebug", "spawn", "spawnat", "export"
-    };
+    private const int MaxKindLength = 48;
 
     private static readonly string[] GameModes =
     {
@@ -74,16 +49,6 @@ internal sealed class StratumCommandAutocomplete : IDisposable
         "gamemode", "gm", "tp"
     };
 
-    private static readonly HashSet<string> GameModeFirstArgumentCommands = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "gamemode", "gm"
-    };
-
-    private static readonly HashSet<string> RoleSecondArgumentCommands = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "role"
-    };
-
     private static readonly HashSet<string> ItemFirstArgumentCommands = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "giveitem"
@@ -98,6 +63,7 @@ internal sealed class StratumCommandAutocomplete : IDisposable
     private readonly StratumCommandSuggestionPopup suggestionPopup;
     private readonly CairoFont measureFont;
     private readonly List<string> rosterPlayerNames = new List<string>();
+    private readonly StratumCompletionSuggestion[] cachedServerCommandSuggestions;
 
     private long tickListenerId;
     private string lastSnapshot;
@@ -116,7 +82,16 @@ internal sealed class StratumCommandAutocomplete : IDisposable
         measureFont = CairoFont.WhiteDetailText().WithFontSize(17f);
         capi.Gui.RegisterDialog(suggestionPopup);
         capi.Event.KeyDown += OnKeyDown;
-        tickListenerId = capi.Event.RegisterGameTickListener(deltaTime => RefreshFromChatInput(), 50, 25);
+
+        cachedServerCommandSuggestions = new StratumCompletionSuggestion[StratumCommandCatalog.ServerCommands.Length];
+        for (int i = 0; i < StratumCommandCatalog.ServerCommands.Length; i++)
+        {
+            StratumCommandCatalog.Entry entry = StratumCommandCatalog.ServerCommands[i];
+            cachedServerCommandSuggestions[i] = new StratumCompletionSuggestion(entry.Name, TruncateKind(entry.Description));
+        }
+
+        // Tab/Up/Down also forces a refresh, so 200ms idle is plenty.
+        tickListenerId = capi.Event.RegisterGameTickListener(deltaTime => RefreshFromChatInput(), 200, 75);
     }
 
     public void UpdateRoster(StratumRosterPacket packet)
@@ -162,7 +137,9 @@ internal sealed class StratumCommandAutocomplete : IDisposable
             return true;
         }
 
-        ApplySuggestion(chatInput, currentContext, currentMatches[Math.Clamp(selectedIndex, 0, currentMatches.Length - 1)], appendSpace: true);
+        StratumCompletionSuggestion target = currentMatches[Math.Clamp(selectedIndex, 0, currentMatches.Length - 1)];
+        if (!target.IsSelectable) return true;
+        ApplySuggestion(chatInput, currentContext, target, appendSpace: true);
         return true;
     }
 
@@ -177,6 +154,14 @@ internal sealed class StratumCommandAutocomplete : IDisposable
         capi.Event.KeyDown -= OnKeyDown;
 
         suggestionPopup?.Dispose();
+    }
+
+    private static string TruncateKind(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        text = text.Trim();
+        if (text.Length <= MaxKindLength) return text;
+        return text.Substring(0, MaxKindLength - 1).TrimEnd() + "\u2026";
     }
 
     private void OnKeyDown(KeyEvent args)
@@ -220,7 +205,11 @@ internal sealed class StratumCommandAutocomplete : IDisposable
         {
             if (currentContext != null && currentMatches.Length > 0)
             {
-                ApplySuggestion(chatInput, currentContext, currentMatches[Math.Clamp(selectedIndex, 0, currentMatches.Length - 1)], appendSpace: true);
+                StratumCompletionSuggestion target = currentMatches[Math.Clamp(selectedIndex, 0, currentMatches.Length - 1)];
+                if (target.IsSelectable)
+                {
+                    ApplySuggestion(chatInput, currentContext, target, appendSpace: true);
+                }
             }
 
             return true;
@@ -282,6 +271,14 @@ internal sealed class StratumCommandAutocomplete : IDisposable
         currentContext = context;
         currentMatches = matches;
         selectedIndex = ResolveSelectedIndex(matches, previousSelectedValue);
+
+        // Unknown top-level command: show a non-selectable error row for feedback.
+        if (matches.Length == 0 && context.TokenIndex == 0 && context.HasTypedToken && context.Prefix == '/')
+        {
+            matches = new[] { new StratumCompletionSuggestion(context.Token, "unknown command") { IsError = true } };
+            currentMatches = matches;
+            selectedIndex = 0;
+        }
 
         if (matches.Length == 0)
         {
@@ -351,21 +348,27 @@ internal sealed class StratumCommandAutocomplete : IDisposable
             }
         }
 
-        return rankedSuggestions
-            .OrderBy(suggestion => suggestion.Rank)
-            .ThenBy(suggestion => suggestion.Suggestion.Value.Length)
-            .ThenBy(suggestion => suggestion.Suggestion.Value, StringComparer.OrdinalIgnoreCase)
-            .Take(MaxMatches)
-            .Select(suggestion => suggestion.Suggestion);
+        // Empty token: alphabetical so the list is browseable. Typed token: rank-then-length.
+        bool emptyToken = string.IsNullOrEmpty(context.Token);
+        IOrderedEnumerable<RankedSuggestion> ordered = emptyToken
+            ? rankedSuggestions.OrderBy(s => s.Suggestion.Value, StringComparer.OrdinalIgnoreCase)
+            : rankedSuggestions
+                .OrderBy(s => s.Rank)
+                .ThenBy(s => s.Suggestion.Value.Length)
+                .ThenBy(s => s.Suggestion.Value, StringComparer.OrdinalIgnoreCase);
+
+        return ordered.Take(MaxMatches).Select(s => s.Suggestion);
     }
 
     private IEnumerable<StratumCompletionSuggestion> GetCandidates(CompletionContext context)
     {
         if (context.TokenIndex == 0)
         {
-            return context.Prefix == '.'
-                ? ToSuggestions(GetClientCommandNames(), "client command")
-                : ToSuggestions(ServerCommands, "command");
+            if (context.Prefix == '.')
+            {
+                return ToSuggestions(GetClientCommandNames(), "client command");
+            }
+            return cachedServerCommandSuggestions;
         }
 
         if (context.CommandEquals("tp"))
@@ -398,16 +401,6 @@ internal sealed class StratumCommandAutocomplete : IDisposable
             return ToSuggestions(RoleCodes, "role");
         }
 
-        if (context.CommandEquals("stratum") && context.ArgumentIndex == 1)
-        {
-            return ToSuggestions(StratumSubcommands, "subcommand");
-        }
-
-        if ((context.CommandEquals("entity") || context.CommandEquals("e")) && context.ArgumentIndex == 1)
-        {
-            return ToSuggestions(EntitySubcommands, "subcommand");
-        }
-
         if ((context.CommandEquals("entity") || context.CommandEquals("e")) && context.ArgumentIndex == 2 && context.PreviousTokenEquals("spawn", "spawnat"))
         {
             return ToSuggestionsIfTyped(context, GetEntityTypeCodes(), "entity");
@@ -431,6 +424,14 @@ internal sealed class StratumCommandAutocomplete : IDisposable
         if (PlayerSecondArgumentCommands.Contains(context.Command) && context.ArgumentIndex == 2)
         {
             return GetEntityTargetCandidates(context);
+        }
+
+        // Catalog-driven subcommands (stratum, entity, wgen, etc.).
+        if (context.ArgumentIndex == 1
+            && !string.IsNullOrEmpty(context.Command)
+            && StratumCommandCatalog.Subcommands.TryGetValue(context.Command, out string[] subs))
+        {
+            return ToSuggestions(subs, "subcommand");
         }
 
         return Array.Empty<StratumCompletionSuggestion>();
@@ -575,7 +576,16 @@ internal sealed class StratumCommandAutocomplete : IDisposable
             return;
         }
 
-        selectedIndex = (selectedIndex + delta + currentMatches.Length) % currentMatches.Length;
+        // Skip hint/error rows when cycling.
+        int attempts = 0;
+        do
+        {
+            selectedIndex = (selectedIndex + delta + currentMatches.Length) % currentMatches.Length;
+            attempts++;
+        }
+        while (attempts < currentMatches.Length && !currentMatches[selectedIndex].IsSelectable);
+
+        if (!currentMatches[selectedIndex].IsSelectable) return;
         PreviewSuggestion(chatInput, currentMatches[selectedIndex]);
     }
 

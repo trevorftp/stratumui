@@ -22,10 +22,14 @@ internal sealed class StratumCommandSuggestionPopup : GuiDialog
     private static readonly double[] ValueColor = { 0.84, 0.78, 0.64, 1 };
     private static readonly double[] SelectedValueColor = { 1, 0.94, 0.76, 1 };
     private static readonly double[] KindColor = { 0.56, 0.53, 0.47, 1 };
+    private static readonly double[] ErrorColor = { 0.92, 0.34, 0.30, 1 };
+    private static readonly double[] HintColor = { 0.62, 0.72, 0.58, 1 };
 
     private readonly CairoFont valueFont;
     private readonly CairoFont selectedValueFont;
     private readonly CairoFont kindFont;
+    private readonly CairoFont errorFont;
+    private readonly CairoFont hintFont;
     private StratumCompletionSuggestion[] visibleSuggestions = Array.Empty<StratumCompletionSuggestion>();
     private StratumCommandSuggestionPlacement currentPlacement;
     private int selectedIndex;
@@ -36,6 +40,8 @@ internal sealed class StratumCommandSuggestionPopup : GuiDialog
         valueFont = CairoFont.WhiteDetailText().WithFontSize(16f).WithColor(ValueColor);
         selectedValueFont = valueFont.Clone().WithColor(SelectedValueColor).WithWeight(FontWeight.Bold);
         kindFont = valueFont.Clone().WithColor(KindColor).WithFontSize(14f);
+        errorFont = valueFont.Clone().WithColor(ErrorColor).WithWeight(FontWeight.Bold);
+        hintFont = valueFont.Clone().WithColor(HintColor).WithSlant(FontSlant.Italic);
     }
 
     public override bool Focusable => false;
@@ -118,13 +124,16 @@ internal sealed class StratumCommandSuggestionPopup : GuiDialog
             StratumCompletionSuggestion suggestion = visibleSuggestions[suggestionIndex];
             double rowTop = paddingY + suggestionIndex * rowHeight;
             double baseline = rowTop + (rowHeight + fontExtents.Ascent - fontExtents.Descent) / 2 - scale;
-            CairoFont rowFont = suggestionIndex == selectedIndex ? selectedValueFont : valueFont;
+            CairoFont rowFont;
+            if (suggestion.IsError) rowFont = errorFont;
+            else if (suggestion.IsHint) rowFont = hintFont;
+            else rowFont = suggestionIndex == selectedIndex ? selectedValueFont : valueFont;
 
             rowFont.SetupContext(context);
             context.MoveTo(paddingX, baseline);
             context.ShowText(suggestion.Value);
 
-            if (!string.IsNullOrWhiteSpace(suggestion.Kind))
+            if (!string.IsNullOrWhiteSpace(suggestion.Kind) && !suggestion.IsHint)
             {
                 TextExtents valueExtents = context.TextExtents(suggestion.Value);
                 kindFont.SetupContext(context);
@@ -168,6 +177,12 @@ internal sealed class StratumCompletionSuggestion
     public string Value { get; }
 
     public string Kind { get; }
+
+    public bool IsError { get; init; }
+
+    public bool IsHint { get; init; }
+
+    public bool IsSelectable => !IsError && !IsHint;
 }
 
 internal readonly struct StratumCommandSuggestionPlacement

@@ -109,8 +109,7 @@ public class StratumPlayerDetailDialog : GuiDialog
             capi.Render.CurrentActiveShader.Uniform("lightPosition", light.X, light.Y, light.Z);
 
             double centerX = modelInsetBounds.renderX + modelInsetBounds.OuterWidth / 2.0;
-            // Eye line sits slightly above the inset top; small negative offset keeps the head visible without cropping.
-            double topY = modelInsetBounds.renderY + GuiElement.scaled(-4);
+            double topY = modelInsetBounds.renderY + GuiElement.scaled(GuiElementItemSlotGridBase.unscaledSlotPadding) - GuiElement.scaled(38);
             capi.Render.RenderEntityToGui(deltaTime, entity, centerX - GuiElement.scaled(145), topY, GuiElement.scaled(255), yaw, (float)GuiElement.scaled(145), -1);
             capi.Render.GlPopMatrix();
             capi.Render.CurrentActiveShader.Uniform("lightPosition", 0.7071068f, -0.7071068f, 0f);
@@ -127,6 +126,52 @@ public class StratumPlayerDetailDialog : GuiDialog
         characterView = BuildView("character");
         hotbarView = BuildView("hotbar");
         backpackView = BuildView("backpack");
+        ApplySlotIcons();
+    }
+
+    // Indexed by slot id, which equals the int value of EnumCharacterDressType (non-sequential, e.g. UpperBodyOver = 11). Mirrors iconByDressType in VintagestoryLib InventoryCharacter.
+    private static readonly string[] CharacterSlotIcons = new[]
+    {
+        "hat",        // 0  Head
+        "cape",       // 1  Shoulder
+        "shirt",      // 2  UpperBody
+        "trousers",   // 3  LowerBody
+        "boots",      // 4  Foot
+        "gloves",     // 5  Hand
+        "necklace",   // 6  Neck
+        "medal",      // 7  Emblem
+        "mask",       // 8  Face
+        "belt",       // 9  Waist
+        "bracers",    // 10 Arm
+        "pullover",   // 11 UpperBodyOver
+        "armorhead",  // 12 ArmorHead
+        "armorbody",  // 13 ArmorBody
+        "armorlegs",  // 14 ArmorLegs
+    };
+
+    private void ApplySlotIcons()
+    {
+        if (characterView != null)
+        {
+            for (int i = 0; i < characterView.Count && i < CharacterSlotIcons.Length; i++)
+            {
+                characterView[i].BackgroundIcon = CharacterSlotIcons[i];
+            }
+        }
+        if (hotbarView != null)
+        {
+            for (int i = 0; i < hotbarView.Count; i++)
+            {
+                hotbarView[i].BackgroundIcon = (i + 1).ToString(CultureInfo.InvariantCulture);
+            }
+        }
+        if (backpackView != null)
+        {
+            for (int i = 0; i < backpackView.Count; i++)
+            {
+                backpackView[i].BackgroundIcon = "basket";
+            }
+        }
     }
 
     private DummyInventory BuildView(string className)

@@ -313,7 +313,6 @@ public class StratumTabListDialog : GuiDialog
         DrawText(context, detailFont, mode, textX + roleFont.GetTextExtents(role).XAdvance + 38 * scale, y + 42 * scale);
 
         // PingMs < 0 means the server didn't report one (e.g. vanilla fallback). Hide the pill entirely
-        // rather than showing a misleading "0 ms" or "? ms".
         if (player.PingMs >= 0)
         {
             string ping = FormatPing(player.PingMs);
@@ -460,7 +459,7 @@ public class StratumTabListDialog : GuiDialog
             return;
         }
 
-        // No StratumUI server -> no actions to send. The roster still renders, this just disables clicking through.
+        // No StratumUI on the server; clicks become no-ops.
         if (!clientChannel.Connected)
         {
             return;

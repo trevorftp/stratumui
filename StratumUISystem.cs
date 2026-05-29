@@ -19,7 +19,8 @@ public class StratumUISystem : ModSystem
     private const string TabListHotKey = "stratumui-tablist";
     private const string ChatHistoryHotKey = "stratumui-chat-history";
     private const string PlayerRecordsKey = "stratum.moderation.records.v1";
-    // Roles that get the staff-only action menu. Anything else gets a read-only roster.
+    // Roles that get the staff action menu. Other roles see a read-only roster.
+    // i swear later this won't just be hardcoded in the mod but for now it's fine
     private static readonly HashSet<string> StaffRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "admin",
@@ -64,14 +65,15 @@ public class StratumUISystem : ModSystem
         api.Event.PlayerNowPlaying += OnPlayerRosterChanged;
         api.Event.PlayerLeave += OnPlayerRosterChanged;
         api.Event.PlayerDisconnect += OnPlayerRosterChanged;
-        serverTickListenerId = api.Event.RegisterGameTickListener(_ => BroadcastRoster(), 2000, 750);
+        // BroadcastRoster fans out per viewer, so keep the cadence loose.
+        serverTickListenerId = api.Event.RegisterGameTickListener(_ => BroadcastRoster(), 5000, 750);
     }
 
     public override void StartClientSide(ICoreClientAPI api)
     {
         capi = api;
         clientConfig = StratumClientConfig.LoadOrCreate(api);
-        // On vanilla servers nothing answers this channel; Connected stays false and we degrade gracefully.
+        // Vanilla servers don't answer this channel
         clientChannel = api.Network.RegisterChannel(ChannelName)
             .RegisterMessageType(typeof(StratumRosterPacket))
             .RegisterMessageType(typeof(StratumPlayerActionRequest))
@@ -91,7 +93,7 @@ public class StratumUISystem : ModSystem
         api.Gui.RegisterDialog(tabListDialog);
         api.Gui.RegisterDialog(chatHistoryDialog);
 
-        api.Input.RegisterHotKeyFirst(TabListHotKey, "Stratum tab list", GlKeys.Tab, HotkeyType.GUIOrOtherControls);
+        api.Input.RegisterHotKeyFirst(TabListHotKey, "Player tab list", GlKeys.Tab, HotkeyType.GUIOrOtherControls);
         api.Input.SetHotKeyHandler(TabListHotKey, _ =>
         {
             if (commandAutocomplete?.TryCompleteFromChatHotkey() == true)
@@ -103,7 +105,7 @@ public class StratumUISystem : ModSystem
             return true;
         });
 
-        api.Input.RegisterHotKey(ChatHistoryHotKey, "Stratum chat history", GlKeys.T, HotkeyType.GUIOrOtherControls, ctrlPressed: true);
+        api.Input.RegisterHotKey(ChatHistoryHotKey, "Extended chat history", GlKeys.T, HotkeyType.GUIOrOtherControls, ctrlPressed: true);
         api.Input.SetHotKeyHandler(ChatHistoryHotKey, _ =>
         {
             chatHistoryDialog.Toggle();
@@ -113,9 +115,7 @@ public class StratumUISystem : ModSystem
         api.Event.ChatMessage += OnClientChatMessage;
         api.Event.LeaveWorld += OnClientLeaveWorld;
 
-        // Vanilla / non-Stratum server fallback: the server won't send a roster packet, so we synthesise
-        // one from the client's own known-player list. Harmless when the channel IS connected because
-        // the server packet arrives more often and just overwrites this.
+        // Fallback roster for vanilla servers. Skipped when the server channel is connected.
         clientFallbackTickListenerId = api.Event.RegisterGameTickListener(_ => TryPushClientFallbackRoster(), 1500, 500);
     }
 
@@ -161,27 +161,75 @@ public class StratumUISystem : ModSystem
             return;
         }
 
-        foreach (IServerPlayer player in GetOnlineServerPlayers())
-        {
-            serverChannel.SendPacket(BuildRosterPacket(player), player);
-        }
-    }
-
-    private StratumRosterPacket BuildRosterPacket(IServerPlayer viewer)
-    {
-        StratumRosterEntry[] entries = GetOnlineServerPlayers()
-            .OrderByDescending(player => StaffRoles.Contains(player.Role?.Code ?? ""))
-            .ThenBy(player => player.PlayerName, StringComparer.OrdinalIgnoreCase)
-            .Select(player => ToRosterEntry(viewer, player))
+        IServerPlayer[] players = sapi.World.AllOnlinePlayers
+            .OfType<IServerPlayer>()
+            .Where(p => p.ConnectionState == EnumClientState.Playing)
+            .OrderByDescending(p => StaffRoles.Contains(p.Role?.Code ?? ""))
+            .ThenBy(p => p.PlayerName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        return new StratumRosterPacket
+        if (players.Length == 0)
         {
-            Players = entries,
-            OnlineCount = entries.Length,
-            MaxPlayers = sapi.Server.Config.MaxClients,
-            ServerTimeMilliseconds = sapi.World.ElapsedMilliseconds
-        };
+            return;
+        }
+
+        int maxClients = sapi.Server.Config.MaxClients;
+        long serverTimeMs = sapi.World.ElapsedMilliseconds;
+
+        // Build viewer-independent fields once, then project per-viewer below.
+        StratumRosterEntry[] baseEntries = new StratumRosterEntry[players.Length];
+        StratumModerationCounts[] modCounts = new StratumModerationCounts[players.Length];
+        for (int i = 0; i < players.Length; i++)
+        {
+            IServerPlayer p = players[i];
+            string roleCode = p.Role?.Code ?? p.ServerData?.RoleCode ?? "player";
+            modCounts[i] = GetModerationCounts(p.ServerData);
+            baseEntries[i] = new StratumRosterEntry
+            {
+                PlayerUid = p.PlayerUID,
+                PlayerName = p.PlayerName,
+                RoleCode = roleCode,
+                RoleName = p.Role?.Name ?? roleCode,
+                RoleColor = ToHexColor(p.Role?.Color),
+                GameMode = p.WorldData?.CurrentGameMode.ToString() ?? "Unknown",
+                PingMs = ToPingMs(p.Ping),
+                IsStaff = StaffRoles.Contains(roleCode)
+                // ActionFlags and moderation counts are filled per viewer below.
+            };
+        }
+
+        foreach (IServerPlayer viewer in players)
+        {
+            bool staffAccess = HasStaffUiAccess(viewer);
+            StratumRosterEntry[] entries = new StratumRosterEntry[players.Length];
+            for (int i = 0; i < players.Length; i++)
+            {
+                StratumRosterEntry b = baseEntries[i];
+                entries[i] = new StratumRosterEntry
+                {
+                    PlayerUid = b.PlayerUid,
+                    PlayerName = b.PlayerName,
+                    RoleCode = b.RoleCode,
+                    RoleName = b.RoleName,
+                    RoleColor = b.RoleColor,
+                    GameMode = b.GameMode,
+                    PingMs = b.PingMs,
+                    IsStaff = b.IsStaff,
+                    ActionFlags = (int)BuildActionFlags(viewer, players[i]),
+                    HasModerationCounts = staffAccess,
+                    ActiveWarnings = staffAccess ? modCounts[i].Warnings : 0,
+                    ActiveViolations = staffAccess ? modCounts[i].Violations : 0
+                };
+            }
+
+            serverChannel.SendPacket(new StratumRosterPacket
+            {
+                Players = entries,
+                OnlineCount = entries.Length,
+                MaxPlayers = maxClients,
+                ServerTimeMilliseconds = serverTimeMs
+            }, viewer);
+        }
     }
 
     private IEnumerable<IServerPlayer> GetOnlineServerPlayers()
@@ -380,7 +428,7 @@ public class StratumUISystem : ModSystem
         }
         catch (Exception)
         {
-            // Some inventories (e.g. InventoryPlayerCreative for non-creative players) throw on Count.
+            // InventoryPlayerCreative throws Count for non-creative players?
             return;
         }
 
@@ -693,9 +741,7 @@ public class StratumUISystem : ModSystem
         commandAutocomplete?.UpdateRoster(packet);
     }
 
-    // Build a minimal roster from the client's own player list. Used on vanilla servers where the
-    // StratumUI channel never handshakes, so we have no server-driven roster to show. Most rich data
-    // (ping, moderation counts, action flags) is unavailable client-side - those just stay empty.
+    // Vanilla-server fallback. Rich fields (ping, moderation, action flags) stay empty.
     private void TryPushClientFallbackRoster()
     {
         if (capi?.World == null)
@@ -703,7 +749,6 @@ public class StratumUISystem : ModSystem
             return;
         }
 
-        // Channel up = real roster is flowing. Don't fight it.
         if (clientChannel?.Connected == true)
         {
             return;
@@ -730,9 +775,7 @@ public class StratumUISystem : ModSystem
 
     private static StratumRosterEntry ToClientFallbackEntry(IPlayer player)
     {
-        // Vanilla / non-Stratum: we have no reliable role or ping for anyone (including the local
-        // player, whose cached role may be stale from another server). Show everyone as "player" and
-        // mark ping as unknown (-1) so the dialog hides the pill instead of rendering "0 ms".
+        // No reliable role/ping client-side. Ping -1 makes the dialog hide the pill.
         string gameMode;
         try { gameMode = player.WorldData?.CurrentGameMode.ToString() ?? "Unknown"; }
         catch { gameMode = "Unknown"; }
@@ -756,8 +799,7 @@ public class StratumUISystem : ModSystem
 
     private void OnPlayerActionResultPacket(StratumPlayerActionResultPacket packet)
     {
-        // only write chat messages here for debugging
-        // can be enabled via stratumui-client.json (ShowActionResultsInChat). off by default
+        // Opt-in debug echo, off by default. Toggle in stratumui-client.json.
         if (clientConfig?.ShowActionResultsInChat != true)
         {
             return;

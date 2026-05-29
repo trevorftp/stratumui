@@ -67,7 +67,7 @@ public class StratumChatHistoryDialog : GuiDialog
         SingleComposer = capi.Gui
             .CreateCompo("stratum-chat-history", ElementStdBounds.AutosizedMainDialog)
             .AddShadedDialogBG(bgBounds)
-            .AddDialogTitleBar("Stratum Chat", OnTitleBarClose)
+            .AddDialogTitleBar("Chat History", OnTitleBarClose)
             .BeginChildElements(bgBounds)
                 .AddInset(insetBounds)
                 .AddVerticalScrollbar(OnNewScrollbarValue, scrollbarBounds, "scrollbar")
@@ -121,16 +121,16 @@ public class StratumChatHistoryDialog : GuiDialog
         switch (chatType)
         {
             case EnumChatType.CommandSuccess:
-                return "<font color=\"#92df8b\"><strong>[ok]</strong></font>";
+                return "<font color=\"#92df8b\"><strong>[ok]</strong></font> ";
             case EnumChatType.CommandError:
-                return "<font color=\"#e47d68\"><strong>[error]</strong></font>";
+                return "<font color=\"#e47d68\"><strong>[error]</strong></font> ";
             case EnumChatType.Notification:
-                return "<font color=\"#e6c15f\"><strong>[notice]</strong></font>";
+                return "<font color=\"#e6c15f\"><strong>[notice]</strong></font> ";
             case EnumChatType.OthersMessage:
             case EnumChatType.OwnMessage:
-                return "<font color=\"#8bd5ff\"><strong>[chat]</strong></font>";
+                return "<font color=\"#8bd5ff\"><strong>[chat]</strong></font> ";
             default:
-                return "<font color=\"#b8afa0\"><strong>[server]</strong></font>";
+                return "<font color=\"#b8afa0\"><strong>[server]</strong></font> ";
         }
     }
 
